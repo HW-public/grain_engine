@@ -62,7 +62,12 @@ Future<File?> _locateBundledDll() async {
   if (json is! Map || json['packages'] is! List) return null;
   for (final p in json['packages'] as List) {
     if (p is Map && p['name'] == 'grain_engine' && p['rootUri'] is String) {
-      final root = cfg.uri.resolve(p['rootUri'] as String);
+      var root = cfg.uri.resolve(p['rootUri'] as String);
+      // path 依赖的 rootUri 常无尾斜杠（如 "../../grain_engine"），
+      // Uri.resolve 会把末段当文件名吃掉——补斜杠后再拼相对路径。
+      if (!root.path.endsWith('/')) {
+        root = root.replace(path: '${root.path}/');
+      }
       return File.fromUri(root.resolve(_bundledRelPath));
     }
   }

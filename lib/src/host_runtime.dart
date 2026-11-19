@@ -195,6 +195,17 @@ class GrainPlugin {
       ),
     );
 
+    // 燃料计量下，实例化（start 函数）与随后的 metadata_json 调用都会烧
+    // 燃料：初始预算必须在 build 之前注入。fuelAmount 是累计预算，
+    // perCallFuel 作为首调预算；二者皆空则直接报错。
+    if (consumeFuel) {
+      final initial = fuelAmount ?? perCallFuel;
+      if (initial == null) {
+        throw ArgumentError('consumeFuel requires fuelAmount or perCallFuel');
+      }
+      builder.fuel()?.addFuel(initial);
+    }
+
     final instance = await builder.build();
     final memory = instance.getMemory('memory');
     if (memory == null) {
@@ -266,9 +277,6 @@ class GrainPlugin {
       }
     }
 
-    if (fuelAmount != null) {
-      (builder.fuel() ?? instance.fuel())?.addFuel(fuelAmount);
-    }
     plugin = GrainPlugin._(
       name: name,
       module: module,
