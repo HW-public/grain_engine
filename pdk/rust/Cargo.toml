@@ -1,0 +1,16 @@
+[workspace]
+members = [
+    "crates/pdk",
+    "crates/pdk-macros",
+    "crates/panic_test",
+    "plugins/360zy",
+    "plugins/bili-wbi",
+]
+resolver = "2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

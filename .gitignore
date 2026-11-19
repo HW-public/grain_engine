@@ -1,0 +1,30 @@
+# Dart
+.dart_tool/
+build/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.idea/
+*.iml
+
+# Rust
+target/
+Cargo.lock.bak
+
+# 密钥类
+*.pem
+*.key
+*.p12
+*.keystore
+.env
+.env.*
+
+# 系统
+Thumbs.db
+.DS_Store
+
+# harness 运行输出
+example/harness/harness_output.txt
+example/harness/.dart_tool/wasm_run/
+/pubspec.lock
+pdk/rust/Cargo.lock

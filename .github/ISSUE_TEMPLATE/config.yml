@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & Discussions
+    url: https://github.com/HW-public/grain_engine/discussions
+    about: 一般性问题、用法咨询、设计探讨请走 Discussions，不要开 issue。
