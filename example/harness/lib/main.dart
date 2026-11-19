@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/widgets.dart';
 import 'package:grain_engine/grain_engine.dart';
 
@@ -109,6 +110,72 @@ Future<void> main() async {
       emit('[6] bili-wbi: N/A (no bili plugin artifact)');
     } else {
       await _biliVerdict(biliPath, emit);
+    }
+
+    // 验证项 7：detail（360zy 用 latest 首条 url 作为 vod_id）。
+    emit('');
+    String? firstEpisodeUrl;
+    final firstId = _firstItemUrl(latestJson);
+    if (firstId == null) {
+      emit('[7] 360zy detail: N/A (latest returned no item url)');
+    } else {
+      try {
+        final detailJson = await plugin.callDetail(firstId);
+        final detail = jsonDecode(detailJson);
+        final episodes = detail is Map && detail['episodes'] is List
+            ? detail['episodes'] as List
+            : const <dynamic>[];
+        final detailTitle = detail is Map ? detail['title'] : '?';
+        emit(
+          '[7] 360zy detail(id=$firstId): '
+          'title=$detailTitle, episodes=${episodes.length}',
+        );
+        if (episodes.isEmpty) {
+          emit('    FAILED: episodes is empty');
+        } else {
+          final first = episodes.first;
+          final firstTitle = first is Map ? first['title'] : '?';
+          emit('    first episode: $firstTitle');
+          firstEpisodeUrl = first is Map ? first['url'] as String? : null;
+          emit('    first url: ${_truncate(firstEpisodeUrl ?? '', 120)}');
+        }
+      } catch (e) {
+        emit('[7] 360zy detail: FAILED: $e');
+      }
+    }
+    // bili detail 仅作信息打印（机房 IP 可能被风控，不作为判决失败）。
+    await _biliDetailInfo(biliPath, emit);
+
+    // 验证项 8：watch（取 detail 首集 url 调 watch，校验直链可请求）。
+    emit('');
+    final episodeUrl = firstEpisodeUrl;
+    if (episodeUrl == null || episodeUrl.isEmpty) {
+      emit('[8] 360zy watch: N/A (no episode url from detail)');
+    } else {
+      try {
+        final sw3 = Stopwatch()..start();
+        final watchJson = await plugin.callWatch(episodeUrl);
+        sw3.stop();
+        final watch = jsonDecode(watchJson);
+        final direct = watch is Map ? watch['url'] as String? : null;
+        final headers = watch is Map && watch['headers'] is Map
+            ? (watch['headers'] as Map).cast<String, dynamic>()
+            : <String, dynamic>{};
+        emit(
+          '[8] 360zy watch("${_truncate(episodeUrl, 60)}"): '
+          '${sw3.elapsedMilliseconds} ms',
+        );
+        emit('    direct: ${_truncate(direct ?? '', 80)}');
+        if (direct == null || direct.isEmpty) {
+          emit('    FAILED: watch returned no url');
+        } else {
+          final status = await _probeHttp(direct, headers);
+          final ok = status == 200 || status == 206;
+          emit('    HTTP check: $status ${ok ? '(ok)' : '(FAILED)'}');
+        }
+      } catch (e) {
+        emit('[8] 360zy watch: FAILED: $e');
+      }
     }
   } catch (e, s) {
     emit('HARNESS_ERROR: $e\n$s');
@@ -259,6 +326,92 @@ Future<void> _biliVerdict(String path, void Function(String) emit) async {
     }
   } catch (e) {
     emit('[6] bili-wbi: FAILED: $e');
+  }
+}
+
+/// 取 latest 结果首条条目的 `url` 字段（360zy 为 vod_id 字符串）。
+String? _firstItemUrl(String json) {
+  try {
+    final decoded = jsonDecode(json);
+    if (decoded is List && decoded.isNotEmpty) {
+      final first = decoded.first;
+      if (first is Map) {
+        final url = first['url'];
+        if (url is String && url.isNotEmpty) return url;
+      }
+    }
+  } catch (_) {
+    // 非 JSON 或形状不符：视为无首条。
+  }
+  return null;
+}
+
+/// bili detail 信息性输出：机房 IP 可能被风控，失败只记录不判负。
+Future<void> _biliDetailInfo(String path, void Function(String) emit) async {
+  if (path.isEmpty) {
+    emit('    bili detail (informational): N/A (no bili artifact)');
+    return;
+  }
+  try {
+    final plugin = await GrainPlugin.instantiate(path);
+    try {
+      final bvid = _firstItemUrl(await plugin.callLatest(1));
+      if (bvid == null) {
+        emit('    bili detail (informational): N/A (no latest item)');
+        return;
+      }
+      final detail = jsonDecode(await plugin.callDetail(bvid));
+      final title = detail is Map ? detail['title'] : '?';
+      final episodes = detail is Map && detail['episodes'] is List
+          ? (detail['episodes'] as List).length
+          : -1;
+      emit('    bili detail (informational): title=$title, episodes=$episodes');
+    } finally {
+      plugin.dispose();
+    }
+  } catch (e) {
+    emit('    bili detail (informational): skipped ($e)');
+  }
+}
+
+/// 验证直链可请求：优先 HEAD；源站不支持时用 GET Range 只读首字节。
+/// 返回 HTTP 状态码，网络失败返回 null。
+Future<int?> _probeHttp(String url, Map<String, dynamic> headers) async {
+  final dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 15),
+      validateStatus: (_) => true,
+    ),
+  );
+  try {
+    try {
+      final head = await dio.head<void>(
+        url,
+        options: Options(headers: headers),
+      );
+      final status = head.statusCode;
+      if (status == 200 || status == 206) return status;
+    } catch (_) {
+      // HEAD 被拒/连接异常：回退 GET Range。
+    }
+    final get = await dio.get<dynamic>(
+      url,
+      options: Options(
+        headers: {...headers, 'Range': 'bytes=0-0'},
+        responseType: ResponseType.stream,
+      ),
+    );
+    final body = get.data;
+    if (body is ResponseBody) {
+      // 只读响应头：取到状态码后立即取消流，不下载媒体体。
+      await body.stream.listen(null).cancel();
+    }
+    return get.statusCode;
+  } catch (_) {
+    return null;
+  } finally {
+    dio.close();
   }
 }
 

@@ -3,6 +3,14 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### Added
+
+- ABI v0.2：新增可选 guest 导出 `detail(url)` / `watch(url)` 与宿主
+  `callDetail`/`callWatch`；360zy、bili-wbi 示例插件实现，harness 追加
+  [7]/[8] 两项判决
+
 ## [0.1.0] - 2026-11-19
 
 ### Added

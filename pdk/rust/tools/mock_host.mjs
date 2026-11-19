@@ -7,13 +7,19 @@
 // - 字符串一律 NUL 结尾；宿主读完指针调 guest.free_result(ptr)
 // - 错误通道：latest 返回 0 / take_result 返回 0 时查 last_error()（NUL 结尾 JSON）
 //
-// Usage: node mock_host.mjs <plugin.wasm> <latest|search> [keyword]
+// Usage: node mock_host.mjs <plugin.wasm> <latest|search|detail|watch> [arg]
+//   search: arg = keyword；detail: arg = vod_id / bvid；watch: arg = episode url
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 const wasmPath = process.argv[2];
 const op = process.argv[3] ?? "latest";
-const keyword = process.argv[4] ?? "鬼灭";
+const defaults = {
+  search: "鬼灭",
+  detail: "1001",
+  watch: "https://cdn.example.com/1.m3u8",
+};
+const arg = process.argv[4] ?? defaults[op] ?? "";
 
 const wasm = readFileSync(wasmPath);
 let guest, nextHandle = 1;
@@ -96,9 +102,35 @@ function cannedHttp(url) {
     return envelope(JSON.stringify({
       code: 1, msg: "数据列表", page: 1, pagecount: 1, limit: "20", total: 2,
       list: [
-        { vod_id: 1001, vod_name: "鬼灭之刃 柱训练篇", vod_pic: "https://img.example.com/1.jpg", vod_remarks: "第8集" },
+        {
+          vod_id: 1001, vod_name: "鬼灭之刃 柱训练篇", vod_pic: "https://img.example.com/1.jpg",
+          vod_remarks: "第8集", vod_content: "示例简介",
+          vod_play_url: "第01集$https://cdn.example.com/1.m3u8#第02集$https://cdn.example.com/2.m3u8",
+        },
         { vod_id: 1002, vod_name: "迷宫饭", vod_pic: "https://img.example.com/2.jpg", vod_remarks: "完结" },
       ],
+    }));
+  }
+  if (url.includes("/x/web-interface/view")) {
+    return envelope(JSON.stringify({
+      code: 0, message: "0",
+      data: {
+        bvid: "BV1zz411c7oF", title: "热门视频甲", desc: "示例简介",
+        pic: "//i0.hdslb.com/bfs/archive/c.jpg", cid: 111,
+        pages: [
+          { cid: 111, page: 1, part: "P1 开场" },
+          { cid: 222, page: 2, part: "P2 正片" },
+        ],
+      },
+    }));
+  }
+  if (url.includes("/x/player/wbi/playurl")) {
+    return envelope(JSON.stringify({
+      code: 0, message: "0",
+      data: { dash: { video: [
+        { bandwidth: 1000, baseUrl: "https://cdn.example.com/low.m4s" },
+        { bandwidth: 9000, baseUrl: "https://cdn.example.com/high.m4s" },
+      ] } },
     }));
   }
   if (url.includes("/x/web-interface/nav")) {
@@ -138,13 +170,13 @@ console.log("metadata:", readCstr(metaPtr));
 guest.free_result(metaPtr);
 
 let handle;
-if (op === "search") {
-  const kw = Buffer.from(keyword, "utf8");
-  const kwPtr = guest.alloc(kw.length + 1);
-  writeBytes(kwPtr, kw);
-  writeBytes(kwPtr + kw.length, Buffer.from([0])); // 显式 NUL：复用块不保证零填充
-  handle = guest.search(kwPtr);
-  guest.dealloc(kwPtr, kw.length + 1);
+if (op === "search" || op === "detail" || op === "watch") {
+  const bytes = Buffer.from(arg, "utf8");
+  const ptr = guest.alloc(bytes.length + 1);
+  writeBytes(ptr, bytes);
+  writeBytes(ptr + bytes.length, Buffer.from([0])); // 显式 NUL：复用块不保证零填充
+  handle = guest[op](ptr);
+  guest.dealloc(ptr, bytes.length + 1);
 } else {
   handle = guest.latest(1);
 }

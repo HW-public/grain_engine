@@ -1,4 +1,4 @@
-# grain_engine ABI v0.1（终版权威）
+# grain_engine ABI v0.2（终版权威）
 
 宿主（`lib/src/host_runtime.dart`）与 guest（Rust PDK）共同遵守的 ABI。
 本文档为唯一权威；两侧实现均以本文为准。
@@ -11,7 +11,7 @@
 - guest 侧 ABI 堆为 2MB 静态堆（first-fit 空闲链表），块头自带长度，
   `dealloc` 忽略 len 参数。
 
-## Guest 导出（9 项，与宿主严格校验清单一一对应）
+## Guest 导出（11 项，与宿主严格校验清单一一对应）
 
 | 导出 | 说明 |
 | --- | --- |
@@ -20,12 +20,52 @@
 | `metadata_json() -> ptr` | NUL 结尾 JSON；**每次调用新分配**（宿主读完调 `free_result(ptr)`，缓存会悬垂） |
 | `latest(page) -> handle` | 0 = 立即失败（宿主调 `last_error`）；非 0 = guest handle |
 | `search(kw_ptr) -> handle` | 同上；kw 是宿主写入的 NUL 结尾 UTF-8 串 |
+| `detail(url_ptr) -> handle` | **v0.2 可选导出**；url 同上；结果 JSON 契约见下节。插件未实现时宿主 `callDetail` 抛 `AbiError` |
+| `watch(url_ptr) -> handle` | **v0.2 可选导出**；url 同上；结果 JSON 契约见下节。插件未实现时宿主 `callWatch` 抛 `AbiError` |
 | `take_result(handle) -> ptr` | 0 = 未完成或出错（**宿主应查 `last_error()` 区分**）；非 0 = NUL 结尾 JSON 指针，读完 `free_result(ptr)` |
 | `last_error() -> ptr` | NUL 结尾**错误信封** `{"code":"plugin\|http\|abi\|fuel\|timeout","message","detail"?,"httpStatus"?}`；无错误返回 0；读后所有权归宿主（free_result 释放） |
 | `free_result(ptr)` | 释放结果/错误/元数据指针（task 结果同时移除 task；每个指针只调一次） |
 | `memory` | 线性内存导出 |
 
+`detail`/`watch` 与 `latest`/`search` 共用同一条异步桥：返回 guest handle，
+宿主 pump 轮询 `take_result`，错误经 `last_error` 上报。
+
 guest handle 形如 `0x40000000 | slab_index`，永不与 host handle（<0x40000000）混淆。
+
+## 结果 JSON 契约（v0.2 新增）
+
+`latest`/`search` 返回**条目数组**，条目形状由插件自定义（本仓库示例插件为
+`{"title","url","cover","update"}`）。`detail`/`watch` 返回**单个对象**：
+
+### detail(url) -> object
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `title` | string | 作品标题 |
+| `cover` | string | 封面 URL（无封面时为空串） |
+| `description` | string | 简介（无简介时为空串） |
+| `episodes` | array | 分集列表，元素为 `{"title":string,"url":string}` |
+
+`episodes[].url` 是**插件私有协议值**，供调用方原样回传给同一插件的
+`watch`；宿主不得解析其结构。`detail` 的入参 `url` 通常是 `latest`/`search`
+返回条目的 `url` 字段。
+
+### watch(url) -> object
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `url` | string | 可直接请求的媒体地址（HTTP 直链） |
+| `headers` | object? | 可选请求头（如 `Referer`/`User-Agent`）；省略表示无需额外头 |
+
+### 示例插件约定
+
+- **360zy**：`detail` 的 `episode.url` 取自 maccms `vod_play_url` 的直链；
+  `watch` 原样返回 `{"url": url}`（maccms 提供直链，无需二次解析）。
+- **bili-wbi**：`episode.url` 编码为 `{bvid}|{cid}|{page}`（竖线分隔的
+  **私有协议**）。`watch` 解析后调用 WBI 签名的 playurl：`fnval=16` 优先取
+  `data.dash.video` 中最高 `bandwidth` 的 `baseUrl`，失败回退
+  `data.durl[0].url`；返回对象带 `Referer: https://www.bilibili.com` 与
+  `User-Agent` 请求头。
 
 ## Host import（module "grain"）
 
@@ -50,7 +90,7 @@ http 响应的 `headers` 必须含原始 `Date` 头——wasm 内无时钟，插
 | `http` | 宿主能力层失败（网络、源站非 2xx 语义）；`httpStatus` 带上源站状态码 | `CapabilityError(httpStatus)` |
 | `abi` | 协议违例：缺导出、import 形状不符、非法请求、结果缓冲耗尽 | `AbiError` |
 | `fuel` | 沙箱/资源：fuel 耗尽、trap、宿主结果表打满、主机白名单拒绝 | `SandboxError` |
-| `timeout` | 宿主泵超时（pump 默认预算 30s，`callLatest/callSearch(timeout:)`） | `TimeoutError` |
+| `timeout` | 宿主泵超时（pump 默认预算 30s，`callLatest/callSearch/callDetail/callWatch(timeout:)`） | `TimeoutError` |
 
 - guest PDK `Error` 带 `code` 字段；`last_error()` 输出本信封。
 - 宿主能力层（`_runHttp` 等）失败时把带 code 的信封透传给插件，PDK
@@ -69,7 +109,19 @@ http 响应的 `headers` 必须含原始 `Date` 头——wasm 内无时钟，插
     arity 变更使旧 wasm 无法实例化（instantiate 会报 import 不匹配）；
    错误信封双向容忍只是过渡期的解析兜底。
 
-参考实现：`pdk/rust/tools/mock_host.mjs`（Node，含异步时延模拟与错误通道演示）。
+## v0.1 → v0.2 差异
+
+**纯新增，无破坏性变更。**
+
+1. guest 新增可选导出 `detail(url)` 与 `watch(url)`；宿主新增
+   `callDetail(url)` / `callWatch(url)`（与 `callLatest`/`callSearch` 同款泵）。
+2. 导出清单 9 → 11。未实现这两个导出的插件在宿主调用时抛 `AbiError`
+   （与缺失 `search` 同款文案），不影响其他调用。
+3. **兼容性**：v0.1 插件**无需重编译**即可继续运行；需要详情/播放能力的插件
+   按需实现两个导出即可。
+
+参考实现：`pdk/rust/tools/mock_host.mjs`（Node，含异步时延模拟、错误通道与
+detail/watch 路由演示）。
 
 ## 异步桥（核心结论）
 
@@ -102,8 +154,9 @@ async import。落地架构（guest PDK 的 async/await 状态机 + 宿主泵）
 ## ABI 强制校验规则
 
 宿主 `instantiate` 对「真正使用 grain 能力」的插件（声明了 grain import 或
-带有 `metadata_json`/`latest`/`search`/`take_result`/`last_error` 导出）强制要求
-`alloc`/`dealloc`/`take_result`/`free_result` 四个导出；裸探针模块
+带有 `metadata_json`/`latest`/`search`/`detail`/`watch`/`take_result`/`last_error`
+导出）强制要求 `alloc`/`dealloc`/`take_result`/`free_result` 四个导出；
+`detail`/`watch` 本身是可选导出，不要求存在。裸探针模块
 （如 panic_test 只有 spin/panic/add）放行。
 
 ## 性能数据（六项验证，2026-11-19 实测）
@@ -116,6 +169,9 @@ async import。落地架构（guest PDK 的 async/await 状态机 + 宿主泵）
 | 4 | panic 恢复 | trap（`wasm unreachable`）被宿主捕获，之后同进程新实例正常装载 |
 | 5 | 内存曲线 | RSS 1→73.8 MB，5→87.8，10→98.0，20→118.6 MB，约 2~2.6 MB/插件 |
 | 6 | WBI 签名全流程 | latest（免签名 /popular）176 ms / 20 条真实数据；search 被源站风控拦截（机房 IP），签名链经 mock 宿主 + Python 参考向量验证 |
+
+harness 在六项之后另有 [7]/[8] 两项 detail/watch 判决（360zy 详情 → 首集
+直链 → HTTP 200/206 校验），其结果取决于运行环境的真实网络。
 
 ## 宿主环境踩坑记录
 

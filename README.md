@@ -26,6 +26,8 @@ by the VM itself.
   per-call (`perCallFuel`, recharged before each call) and cumulative-budget modes
 - **Fault isolation** — a panicking plugin traps alone; other instances in the
   same process keep running
+- **Detail & playback** — optional `detail`/`watch` exports resolve episode
+  lists and direct media URLs (with request headers where the source needs them)
 - **Embedded metadata** — name/version/type/package live in a `.wasm` custom
   section; index and inspect plugins without executing a single instruction
 - **Lightweight** — ~2.3MB per plugin, millisecond-class cold start
@@ -72,10 +74,12 @@ final plugin = await GrainPlugin.instantiate('my_plugin.wasm');
 final meta   = plugin.metadata;              // custom section, zero execution
 final latest = await plugin.callLatest(1);   // JSON string
 final search = await plugin.callSearch('Lycoris Recoil');
+final detail = await plugin.callDetail(itemUrl);    // optional export
+final watch  = await plugin.callWatch(episodeUrl);  // optional export
 plugin.dispose();
 ```
 
-Run the full verification suite (real network, six verdicts):
+Run the full verification suite (real network, eight verdicts):
 
 ```bash
 cd pdk/rust && cargo build --target wasm32-unknown-unknown --release
@@ -97,7 +101,7 @@ WASM_DIR=../../pdk/rust/target/wasm32-unknown-unknown/release flutter run -d win
 │  │    xpath/crypto)                         │  │
 │  │  · async pump + NUL-string ABI + fuel    │  │
 │  └──────────────────────────────────────────┘  │
-├──────────── ABI v0 (authoritative: docs/abi.md) ┤
+├────────── ABI v0.2 (authoritative: docs/abi.md) ┤
 │   plugin.wasm (any language, grain.metadata)    │
 │   · may only import "grain": 6 whitelisted caps │
 │   · async fns compiled to state machines by PDK │
@@ -139,7 +143,7 @@ repository exists to make that greenfield buildable.
 lib/            Dart engine package (everything on the host side)
 pdk/rust/       Rust PDK + proc macros + sample plugins + tooling
 docs/           abi.md (authoritative protocol) · plugin-development.md (author guide)
-example/        Runnable harness (one command reproduces all six verdicts)
+example/        Runnable harness (one command reproduces all eight verdicts)
 ```
 
 ## Roadmap
@@ -153,7 +157,7 @@ example/        Runnable harness (one command reproduces all six verdicts)
 
 ## Protocol & license
 
-- ABI version: v0 (see [docs/abi.md](docs/abi.md); may change before v1)
+- ABI version: v0.2 (see [docs/abi.md](docs/abi.md); may change before v1)
 - This repository: MIT (© 2026 HW)
 - Runtime dependencies: [wasm_run](https://pub.dev/packages/wasm_run) (MIT) →
   [wasmtime](https://wasmtime.dev/) (Apache-2.0) — both mature open-source projects

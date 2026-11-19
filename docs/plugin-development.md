@@ -105,7 +105,8 @@ plugin.dispose();
 ## 其他语言（规划）
 
 ABI 与语言无关：任何能编译到 `wasm32-unknown-unknown` 的语言都可以写插件，
-只需实现 [ABI v0](abi.md) 的 9 个导出并 import module "grain" 的 6 个函数。
+只需实现 [ABI v0.2](abi.md) 的 11 个导出（其中 `detail`/`watch` 可选）并
+import module "grain" 的 6 个函数。
 
 - **AssemblyScript**：与 JS 心智最接近，适合前端开发者；规划提供
   as-grain-pdk 绑定层（尚无排期）。

@@ -26,6 +26,8 @@ import 'native_bootstrap.dart';
 ///   0 = 立即失败，宿主调 last_error）
 /// - search(kw_ptr: i32) -> i32 guest handle（kw 是宿主写入的 NUL 结尾
 ///   UTF-8 串，单参签名）
+/// - detail(url_ptr: i32) -> i32 guest handle（可选导出；url 同上）
+/// - watch(url_ptr: i32) -> i32 guest handle（可选导出；url 同上）
 /// - take_result(handle) -> i32
 ///   （非 0 = NUL 结尾结果 JSON ptr，宿主读后经 free_result(ptr) 释放；
 ///   0 = 未完成或出错——宿主查 last_error() 区分，出错为终态会反复上报）
@@ -206,6 +208,8 @@ class GrainPlugin {
       'metadata_json',
       'latest',
       'search',
+      'detail',
+      'watch',
       'take_result',
       'free_result',
       'last_error',
@@ -351,26 +355,51 @@ class GrainPlugin {
     return pump(handle, timeout: timeout);
   }
 
-  /// Calls guest `search(kw)` and pumps until the guest handle resolves.
-  /// kw 为 NUL 结尾 UTF-8 串：复用堆块不保证零填充，必须显式写 NUL。
-  Future<String> callSearch(String keyword, {Duration? timeout}) async {
-    final fn = _functions['search'];
+  /// Calls guest [exportName] with one string argument and pumps until the
+  /// guest handle resolves.
+  ///
+  /// 入参为 NUL 结尾 UTF-8 串：复用堆块不保证零填充，必须显式写 NUL。
+  /// 缺导出抛 [AbiError]（`detail`/`watch` 是可选导出，行为与缺 `search` 一致）。
+  Future<String> _callWithCString(
+    String exportName,
+    String arg, {
+    Duration? timeout,
+  }) async {
+    final fn = _functions[exportName];
     if (fn == null) {
-      throw AbiError(name, 'no search export', detail: 'plugin_fn search?');
+      throw AbiError(
+        name,
+        'no $exportName export',
+        detail: 'plugin_fn $exportName?',
+      );
     }
-    final bytes = utf8.encode(keyword);
+    final bytes = utf8.encode(arg);
     final ptr = (_functions['alloc']!([bytes.length + 1]).first as num).toInt();
     int handle;
     try {
       memory.view.setRange(ptr, ptr + bytes.length, bytes);
       memory.view[ptr + bytes.length] = 0;
       _refuel();
-      handle = _guard('search', () => (fn([ptr]).first as num).toInt());
+      handle = _guard(exportName, () => (fn([ptr]).first as num).toInt());
     } finally {
       _functions['dealloc']!([ptr, bytes.length + 1]);
     }
     return pump(handle, timeout: timeout);
   }
+
+  /// Calls guest `search(kw)` and pumps until the guest handle resolves.
+  Future<String> callSearch(String keyword, {Duration? timeout}) =>
+      _callWithCString('search', keyword, timeout: timeout);
+
+  /// Calls guest `detail(url)` and pumps until the guest handle resolves.
+  /// 可选导出：插件未实现时抛 [AbiError]。
+  Future<String> callDetail(String url, {Duration? timeout}) =>
+      _callWithCString('detail', url, timeout: timeout);
+
+  /// Calls guest `watch(url)` and pumps until the guest handle resolves.
+  /// 可选导出：插件未实现时抛 [AbiError]。
+  Future<String> callWatch(String url, {Duration? timeout}) =>
+      _callWithCString('watch', url, timeout: timeout);
 
   /// Host-side pump: poll take_result; 0 = pending or error (distinguished
   /// via last_error); while pending, await registered host futures (real

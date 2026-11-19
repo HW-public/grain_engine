@@ -21,6 +21,8 @@
 - **燃料掐断** — 显式开启后死循环插件 0~5ms 内被 trap；支持单次调用上限
   （`perCallFuel` 每次调用前充值）与实例累计预算两种语义
 - **故障隔离** — 插件 panic 只 trap 自身，同进程其他插件照常运行
+- **详情与播放** — 可选 `detail`/`watch` 导出解析分集列表与媒体直链
+  （源站需要时一并返回请求头）
 - **元数据内嵌** — 名称/版本/类型/包名存于 `.wasm` custom section，
   不执行任何代码即可读取与索引
 - **轻量** — 单插件内存约 2.3MB，冷启动毫秒级
@@ -66,10 +68,12 @@ final plugin = await GrainPlugin.instantiate('my_plugin.wasm');
 final meta   = plugin.metadata;              // 不执行代码，custom section 直读
 final latest = await plugin.callLatest(1);   // JSON 字符串
 final search = await plugin.callSearch('孤独摇滚');
+final detail = await plugin.callDetail(itemUrl);    // 可选导出
+final watch  = await plugin.callWatch(episodeUrl);  // 可选导出
 plugin.dispose();
 ```
 
-跑通完整验证（真实网络，六项判决）：
+跑通完整验证（真实网络，八项判决）：
 
 ```bash
 cd pdk/rust && cargo build --target wasm32-unknown-unknown --release
@@ -88,7 +92,7 @@ WASM_DIR=../../pdk/rust/target/wasm32-unknown-unknown/release flutter run -d win
 │  │  · grain_* 能力进口（dio/xpath/crypto）   │  │
 │  │  · 异步泵 + NUL 字符串 ABI + fuel 控制    │  │
 │  └──────────────────────────────────────────┘  │
-├──────────── ABI v0（docs/abi.md 权威）─────────┤
+├────────── ABI v0.2（docs/abi.md 权威）─────────┤
 │   plugin.wasm（任意语言编译， grain.metadata）   │
 │   · 只能 import "grain"：白名单内 6 个能力      │
 │   · async fn 由 PDK 宏转状态机，事件驱动        │
@@ -128,7 +132,7 @@ WASM_DIR=../../pdk/rust/target/wasm32-unknown-unknown/release flutter run -d win
 lib/            Dart 引擎包（宿主侧全部能力）
 pdk/rust/       Rust PDK + 过程宏 + 示例插件 + 工具链
 docs/           abi.md（协议权威）· plugin-development.md（编写指南）
-example/        可运行 harness（六项判决一键复现）
+example/        可运行 harness（八项判决一键复现）
 ```
 
 ## Roadmap
@@ -141,7 +145,7 @@ example/        可运行 harness（六项判决一键复现）
 
 ## 协议与许可
 
-- ABI 版本：v0（见 [docs/abi.md](docs/abi.md)，预 v1 前可能调整）
+- ABI 版本：v0.2（见 [docs/abi.md](docs/abi.md)，预 v1 前可能调整）
 - 本仓库：MIT（© 2026 HW）
 - 运行时依赖：[wasm_run](https://pub.dev/packages/wasm_run)（MIT）→
   [wasmtime](https://wasmtime.dev/)（Apache-2.0），均为成熟开源件
