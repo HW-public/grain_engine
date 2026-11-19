@@ -29,6 +29,10 @@ by the VM itself.
 - **Embedded metadata** — name/version/type/package live in a `.wasm` custom
   section; index and inspect plugins without executing a single instruction
 - **Lightweight** — ~2.3MB per plugin, millisecond-class cold start
+- **Batteries included** — the wasm_run native library is embedded (Windows
+  x64); the first `instantiate` places it into wasm_run's official lookup
+  directory automatically — no setup command, no download. Other platforms:
+  `dart run wasm_run:setup` (see [native/NOTICE.md](native/NOTICE.md))
 
 ## Quickstart
 

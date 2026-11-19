@@ -10,6 +10,7 @@ import 'package:xpath_selector_html_parser/xpath_selector_html_parser.dart';
 
 import 'wasm_binary.dart';
 import 'exceptions.dart';
+import 'native_bootstrap.dart';
 
 /// ABI v0.1 — 权威文档为 `docs/abi.md`（v0 差异见文档「v0 → v0.1」节）。
 ///
@@ -113,6 +114,7 @@ class GrainPlugin {
     if (perCallFuel != null && !consumeFuel) {
       throw ArgumentError('perCallFuel requires consumeFuel: true');
     }
+    await ensureBundledWasmRunNative();
     final bytes = await File(path).readAsBytes();
     final name = path
         .split(Platform.pathSeparator)

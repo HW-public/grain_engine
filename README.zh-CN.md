@@ -24,6 +24,9 @@
 - **元数据内嵌** — 名称/版本/类型/包名存于 `.wasm` custom section，
   不执行任何代码即可读取与索引
 - **轻量** — 单插件内存约 2.3MB，冷启动毫秒级
+- **开箱即用** — wasm_run 原生库已内嵌（Windows x64），首次 `instantiate`
+  自动落到官方查找目录，无需 setup 命令、无需下载；其他平台执行
+  `dart run wasm_run:setup`（见 [native/NOTICE.md](native/NOTICE.md)）
 
 ## 30 秒上手
 
